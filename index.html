@@ -1,6 +1,6 @@
-<!doctype html><html><head><meta charset=utf8><meta name=viewport content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}html{scroll-padding-top:env(safe-area-inset-top,0px)}body{margin:0;padding:0;font:14px -apple-system,BlinkMacSystemFont,sans-serif;background:#fff;color:#000}img{max-width:100%}[hidden]:not([hidden=until-found i]){display:none!important}</style></head><body>
+<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><style>:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style></head><body>
 <title>Scrum</title>
-<meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Nunito+Sans:wght@400;600;700&display=swap">
 <style>
 /* Layout: app de duas áreas (aluno / profissional), conteúdo central de até 960px, navegação fixa na base. */
@@ -296,13 +296,13 @@ function sevPill(sev,st){
   return '<span class="pill '+m[sev][0]+'">'+m[sev][1]+'</span>';
 }
 function toast(msg){var t=$("#toast");t.textContent=msg;t.hidden=false;clearTimeout(toast.h);toast.h=setTimeout(function(){t.hidden=true},3200)}
-function errMsg(e){return e&&e.code==="invalid_argument"?"Sem permissão para salvar. Peça acesso de Contribuidor ao dono do app.":"Não foi possível salvar agora. Tente de novo."}
+function errMsg(e){return "Não foi possível salvar agora. Tente de novo."}
 
 /* ---------- gravação ---------- */
 var chain=Promise.resolve();
 function canSave(){
   if(S.sample){toast("Modo exemplo: nada é salvo.");return false}
-  if(!S.db||!S.uid){toast("Entre na sua conta do Claude para salvar.");return false}
+  if(!S.db||!S.uid){toast("Não foi possível salvar agora.");return false}
   return true;
 }
 function saveMe(patch){
@@ -466,10 +466,6 @@ function renderChrome(){
   $("#tools").innerHTML=tl;
   var b='';
   if(S.sample)b+='<div class="banner">Modo exemplo: os dados abaixo são fictícios e nada é salvo.</div>';
-  if(S.ready&&!S.db&&!S.sample)b+='<div class="banner bad">Não foi possível conectar ao banco de dados. Entre na sua conta do Claude para salvar registros, ou veja o app com exemplos.</div>';
-  if(S.slow&&!S.meLoaded&&S.db&&!S.sample)b+='<div class="banner">Os dados estão demorando para chegar. Verifique sua conexão.</div>';
-  if(S.db&&!S.sample&&S.role==="aluno"&&S.canWrite===false)b+='<div class="banner bad">Seu acesso é só de leitura. Peça ao dono do app acesso de Contribuidor para registrar.</div>';
-  if(S.role==="pro"&&S.ready&&S.db&&!S.sample&&!S.canEdit)b+='<div class="banner bad">Seu acesso não permite ver os registros dos alunos. Peça ao dono do app acesso de Editor.</div>';
   $("#nav").hidden=!S.role;
   $("#banners").innerHTML=b;
   $("#navin").innerHTML=tabs().map(function(t){return '<button data-act="go" data-tab="'+t[0]+'"'+(S.tab===t[0]?' aria-current="page"':"")+'><svg viewBox="0 0 24 24" aria-hidden="true">'+ICONS[t[2]]+'</svg>'+t[1]+'</button>'}).join("");
@@ -548,13 +544,37 @@ document.addEventListener("submit",function(e){
       consentimento:true,checkins:(S.me&&S.me.checkins)||[],atividades:(S.me&&S.me.atividades)||[]}).then(function(ok){if(ok){toast("Cadastro salvo.");go("inicio")}});
   }else if(id==="f-turma"){
     if(!canSave())return;
-    if(!S.canEdit){toast("Só professores com acesso de Editor criam turmas.");return}
+    if(!S.canEdit){toast("Não foi possível criar a turma.");return}
     S.db.collection("turmas").add({nome:String(fd.get("nome")).trim(),publico:fd.get("publico")}).then(function(){toast("Turma criada.");f.reset()},function(er){toast(errMsg(er))});
   }
 });
 
 /* ---------- inicialização ---------- */
-var use=(window.claude&&window.claude.use)?window.claude.use.bind(window.claude):function(){return Promise.resolve(null)};
+/* Armazenamento local: mesma interface usada pelo app, gravando JSON no localStorage do navegador. */
+var LOCAL=(function(){
+  var KEY="scrum:dados",mem=null,ls=[];
+  function read(){if(mem)return mem;try{var r=window.localStorage.getItem(KEY);return r?JSON.parse(r):{}}catch(e){return {}}}
+  function write(o){try{window.localStorage.setItem(KEY,JSON.stringify(o))}catch(e){mem=o}}
+  function clone(v){return JSON.parse(JSON.stringify(v))}
+  function docSnap(c,id){var o=read(),v=o[c]&&o[c][id];return {id:id,exists:v!=null,data:function(){return v==null?undefined:clone(v)}}}
+  function qSnap(c){var o=read()[c]||{},docs=Object.keys(o).sort().map(function(id){return docSnap(c,id)});return {docs:docs,size:docs.length,empty:!docs.length}}
+  function emit(c){ls.slice().forEach(function(l){if(l.c!==c)return;try{l.fn(l.id?docSnap(c,l.id):qSnap(c))}catch(e){}})}
+  function put(c,id,data){var o=read();(o[c]||(o[c]={}))[id]=clone(data);write(o);setTimeout(function(){emit(c)},0);return Promise.resolve()}
+  function del(c,id){var o=read();if(o[c])delete o[c][id];write(o);setTimeout(function(){emit(c)},0);return Promise.resolve()}
+  function sub(c,id,fn){var l={c:c,id:id,fn:fn};ls.push(l);setTimeout(function(){if(ls.indexOf(l)>-1)fn(id?docSnap(c,id):qSnap(c))},0);return function(){ls=ls.filter(function(x){return x!==l})}}
+  function newId(){return Date.now().toString(36)+Math.random().toString(36).slice(2,8)}
+  window.addEventListener("storage",function(e){if(e.key===KEY){mem=null;emit("alunos");emit("turmas")}});
+  function docRef(c,id){return {get:function(){return Promise.resolve(docSnap(c,id))},set:function(d){return put(c,id,d)},
+    update:function(d){return put(c,id,Object.assign(docSnap(c,id).data()||{},d))},delete:function(){return del(c,id)},onSnapshot:function(fn){return sub(c,id,fn)}}}
+  return {
+    db:{doc:function(p){var s=p.split("/");return docRef(s[0],s[1])},
+        collection:function(c){return {doc:function(id){return docRef(c,id||newId())},add:function(d){var id=newId();return put(c,id,d).then(function(){return docRef(c,id)})},
+          get:function(){return Promise.resolve(qSnap(c))},onSnapshot:function(fn){return sub(c,null,fn)}}}},
+    user:{id:function(){return Promise.resolve("local")},canEdit:function(){return Promise.resolve(true)},can:function(){return Promise.resolve(true)}},
+    downloads:{save:function(o){return new Promise(function(res,rej){try{var url=URL.createObjectURL(o.data),a=document.createElement("a");a.href=url;a.download=o.filename;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(url)},1000);res()}catch(e){rej(e)}})}}
+  };
+})();
+var use=function(n){return Promise.resolve(LOCAL[n]||null)};
 var sp=$("#splash"),spDone=false,reduce=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 (function(){var h="",i;for(i=0;i<46;i++){var y=(6.5+7.6*i).toFixed(1);h+='<line x1="0" x2="315" y1="'+y+'" y2="'+y+'" style="animation-delay:'+(i*0.018).toFixed(2)+'s"/>'}$("#sp-st").innerHTML=h})();
 function endSplash(){if(spDone)return;spDone=true;sp.classList.add("out");document.body.classList.add("go");setTimeout(function(){sp.remove()},500)}
